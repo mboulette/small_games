@@ -1,0 +1,581 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Tetris Test</title>
+    <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+
+    <script>
+
+        Number.prototype.between = function(a, b) {
+            var min = Math.min.apply(Math, [a, b]),
+            max = Math.max.apply(Math, [a, b]);
+            return this >= min && this <= max;
+        };
+
+        String.prototype.substitute = function(search, replacement) {
+            var target = this;
+            return target.replace(new RegExp(search, 'g'), replacement);
+        };
+
+        $( document ).ready(function() {
+
+            var board = $('canvas')[0];
+            var preview_canvas = $('canvas')[1];
+            var ctx = board.getContext("2d");
+            var preview = preview_canvas.getContext("2d");
+            var piece_width = Math.round(board.width / 15);
+            var speed = 1000;
+            var garbage = [];
+            var running = false;
+
+            var points = 0;
+            var lives = 2;
+            var level = 1;
+
+            var sound_explosion = new Audio('sound/bomb.wav');
+            var sound_levelup = new Audio('sound/levelup.wav');
+            var sound_done = new Audio('sound/done.mp3');
+            var sound_bg = new Audio('sound/tetris-rip.mp3');
+            var sound_rotate = new Audio('sound/rotate.mp3');
+            var sound_bumb = new Audio('sound/bumb.mp3');
+
+            
+            var block = function(color) {
+                this.x = 0;
+                this.y = 0;
+                this.relX = 0;
+                this.relY = 0;
+                this.color = color;
+                this.width = piece_width;
+                this.height = piece_width;
+                this.lineWidth = 2;
+                this.isTrash = false;
+
+                this.draw = function(context){
+
+                    x = this.x + (this.relX * this.width);
+                    y = this.y + (this.relY * this.height);
+
+                    context.beginPath();
+                    context.fillStyle = this.color;
+                    context.rect(x, y, this.width, this.height);
+                    context.fill();
+
+                    var grad = context.createLinearGradient(x, y, x+this.width, y+this.height);
+                    grad.addColorStop(0, "rgba(255, 255, 255, 0.50)");
+                    grad.addColorStop(1, "rgba(0, 0, 0, 0.50)");
+
+                    context.beginPath();
+                    context.lineWidth = this.lineWidth
+                    context.strokeStyle = grad;                    
+                    context.rect(x+1, y+1, this.width-2, this.height-2);
+                    context.stroke();
+
+                    if (this.isTrash) {
+                        context.beginPath();
+                        context.fillStyle = "rgba(0, 0, 0, 0.50)";
+                        context.rect(x, y, this.width, this.height);
+                        context.fill();   
+                    }
+
+
+                }
+
+
+            }
+            var brick = function(model, orientation) {
+                this.model = model;
+                this.shemas = model.shemas;
+                this.color = model.color;
+                this.orientation = orientation;
+                this.x = piece_width * 2;
+                this.y = piece_width * 2;
+                this.sliding = 0;
+                this.dropping = 0;
+                this.blocks = [];
+
+                this.loadShemas = function() { 
+                    
+                    this.blocks = [];
+                    this.blocks.push(new block(this.color));
+                    
+                    var pos = this.shemas[this.orientation].split(" ");
+                    
+                    for (var j in pos) {             
+                        
+                        var piece = new block(this.color);
+
+                        for (var i = 0; i < 2; i++) {
+                            switch(pos[j][i]) {
+                                case 'N': piece.relY--; break;
+                                case 'S': piece.relY++; break;
+                                case 'E': piece.relX++; break;
+                                case 'O': piece.relX--; break;
+                            }
+                        }
+
+                        this.blocks.push(piece);
+
+                    } 
+                }
+
+                this.trash = function() {
+                    for (piece in this.blocks){
+                       this.blocks[piece].x = this.x + (this.blocks[piece].relX * this.blocks[piece].width);
+                       this.blocks[piece].y = this.y + (this.blocks[piece].relY * this.blocks[piece].height);
+
+                       this.blocks[piece].relX = 0;
+                       this.blocks[piece].relY = 0;
+                       this.blocks[piece].isTrash = true;
+
+                       garbage.push(this.blocks[piece]);
+                    }   
+                }
+
+                this.draw = function(context) {
+
+                    for (piece in this.blocks){
+                       this.blocks[piece].x = this.x
+                       this.blocks[piece].y = this.y
+                       this.blocks[piece].draw(context);
+                    }
+
+                }
+
+
+                this.right = function() {
+
+                    var right = 0;
+
+                    for (piece in this.blocks){
+                       if (right < this.blocks[piece].relX) right = this.blocks[piece].relX;
+                    }
+
+                    return this.x + ((right+1) * piece_width);
+
+                }
+
+                this.left = function() {
+
+                    var left = 0;
+
+                    for (piece in this.blocks){
+                       if (left > (this.blocks[piece].relX)) left = this.blocks[piece].relX;
+                    }
+
+                    return this.x + ((left) * piece_width);
+
+                }
+
+                this.bottom = function() {
+
+                    var bottom = 0;
+
+                    for (piece in this.blocks){
+                       if (bottom < (this.blocks[piece].relY)) bottom = this.blocks[piece].relY;
+                    }
+
+                    return this.y + ((bottom+1) * piece_width);
+
+                }
+
+                this.fall = function() {
+
+                    current.dropping = 1;
+                    render();
+                    current.dropping = 1;
+
+                }
+
+                this.move = function() {
+                    
+                    for (piece in garbage){
+                        if (this.hit(garbage[piece], (this.sliding * piece_width), 0)) {
+                            return;
+                            this.sliding = 0;
+                        }
+                    }
+
+                    if ((this.left() + (this.sliding * piece_width) >= 0) && (this.right() + (this.sliding * piece_width) <= board.width)) {
+                        this.x += (this.sliding * piece_width);
+                    }
+
+                    this.sliding = 0;
+
+                }
+
+                this.hit = function(rubbish, x, y) {
+
+                    for (piece in this.blocks){
+                        if (this.y + y + (this.blocks[piece].relY * piece_width) == rubbish.y) {
+                            if (this.x + x + (this.blocks[piece].relX * piece_width) == rubbish.x) {
+                                return true;
+                            }
+                        }
+                    }
+
+                    return false
+                }
+
+                this.rotate = function(direction) {
+
+                    //Valider les collision possible avant de tourner la brick
+                    
+                    sound_rotate.play();
+
+                    var clone = new brick(this.model, this.orientation);
+                    clone.x = this.x;
+                    clone.y = this.y;
+                    clone.forceRotate(direction);
+
+                    for (piece in garbage){
+                        if (clone.hit(garbage[piece], 0, 0)) {
+                            return;
+                        }
+                    }
+
+                    if (clone.bottom() > board.height) return;
+
+                    this.forceRotate(direction);
+                }
+
+                this.forceRotate = function(direction){
+                    
+
+                    this.orientation += direction;
+
+                    if (this.orientation > 3) this.orientation = 0;
+                    if (this.orientation < 0) this.orientation = 3;
+
+                    this.loadShemas();
+
+
+                    if ((this.left() < 0)) this.x += piece_width;
+                    if ((this.right() > board.width)) this.x -= piece_width;
+                    if ((this.left() < 0)) this.x += piece_width;
+                    if ((this.right() > board.width)) this.x -= piece_width;
+                }
+
+                this.loadShemas();
+
+            };
+
+            $(document).on('keydown', function (e) {
+                
+                if (e.which == 32 || e.which == 80) {
+                    running = !running;
+
+                    if (running) {
+                        $('#msg_current').html('');
+                        sound_bg.play();
+                        sound_bg.loop = true;
+                        sound_bg.volume = 0.1;
+                    } else {
+                        $('#msg_current').html('Pause');
+                        sound_bg.pause();
+                    }
+                }
+                
+                if (!running) return; 
+
+                if (e.which == 37) current.sliding = -1;
+                if (e.which == 39) current.sliding = 1;
+                if (e.which == 38) current.rotate(1);
+                if (e.which == 40) current.fall();
+                if (e.which == 82) current.rotate(-1);
+                if (e.which == 66) bomb();
+            });
+
+            $(document).on('keyup', function (e) {
+                //if (e.which == 37) palette.stop();
+                //if (e.which == 39) palette.stop();
+                //if (e.which == 38) current.move.y = -1-billboard.level;
+                //if (e.which == 40) current.move.y = 1+billboard.level;
+            });
+
+
+            var background_draw = function(context){
+
+                for (y = 0; y < board.height; y+=piece_width) { 
+                    
+                    for (x = 0; x < board.width; x+=piece_width) { 
+
+                        context.beginPath();
+                        context.lineWidth = 1
+                        context.strokeStyle = "rgba(255, 255, 255, 0.2)";
+                        context.fillStyle = "rgba(255, 255, 255, 0.3)";
+                        context.rect(x, y, piece_width, piece_width);
+                        context.stroke();
+                        context.fill();
+
+
+                    }
+                }
+
+            }
+
+            var reset = function() {
+               
+                current = new brick(models[Math.floor(Math.random() * 7)], Math.floor(Math.random() * 4));
+                current.dropping = 1;
+                current.x = (board.width - piece_width) / 2;
+                current.y = 2 * piece_width;
+
+                next = new brick(models[Math.floor(Math.random() * 7)], Math.floor(Math.random() * 4));
+            };
+
+
+            var bomb = function() {
+
+                if (lives <= 0) return;
+
+                var y = (board.height - piece_width * 4);
+
+                sound_explosion.play();
+
+                garbage.forEach(function(piece) {
+                    if (piece.y > y ) {
+                        piece.isTrash = false;
+                        piece.color = '#FF0000'; 
+                    }
+                });
+                render();
+
+                setTimeout(function(y){
+
+                    garbage = garbage.filter(function(piece){
+                        return piece.y <= y;
+                    });
+
+                    garbage.forEach(function(piece) {
+                        piece.y = piece.y + (piece_width * 3); 
+                    });
+
+                }, speed / 2, y);
+
+                lives--;
+                $('#msg_lives').html(lives);
+
+            }
+
+            var collision = function() {
+
+                if (current.y == 0) {
+                    console.log('GAMR OVER!');
+                    $('#msg_current').html('<BIG>GAME OVER</BIG> rafraichir pour rejouer.');
+                    Game.over;
+                }
+
+                current.dropping = 0;
+                current.trash()
+                current = null;
+
+                sound_bumb.volume = 0.3;
+                sound_bumb.play();
+
+                checkline(1);
+
+
+                current = next;
+                current.x = (board.width - piece_width) / 2;
+                current.y = 0;
+
+                next = new brick(models[Math.floor(Math.random() * 7)], Math.floor(Math.random() * 4));
+                //next = new brick(model[2], 2);
+
+            }
+
+            var levelUp = function() {
+                level++;
+                speed -= 50;
+
+                sound_levelup.play();
+
+                $('#msg_level').html(level);
+                $('#msg_nextlevel').html( (level*10) * (level*10) );
+
+            }
+
+            var checkline = function(bonus) {
+                
+                //Vérifier si il y a des lignes de supprimer
+                var line_fill = 0;
+
+                for (y = board.height; y > 0; y-=piece_width) { 
+                    
+                    line_fill = 0;
+
+                    garbage.forEach(function(piece) {
+                        if (piece.y == y) line_fill++; 
+                    });
+
+                    if (line_fill == board.width / piece_width) {
+                        complete(y, bonus);
+                        points += bonus * 10 * level;
+                        break;
+                    }  
+                }
+
+                $('#msg_points').html(points);
+
+                if (points >= (level*10) * (level*10) ) {
+                    levelUp();
+                }
+
+            }
+
+            var complete = function(y, bonus) {
+
+                garbage.forEach(function(piece) {
+                    if (piece.y == y ) {
+                        piece.isTrash = false;
+                        piece.color = '#FF0000'; 
+                        piece.draw(ctx);
+                    }
+
+                });
+
+                sound_done.play();
+
+                setTimeout(function(y){
+
+                    console.log('timeout');
+
+                    garbage = garbage.filter(function(piece){
+                        return piece.y != y;
+                    });
+
+                    garbage.forEach(function(piece) {
+                        if (piece.y < y) piece.y = piece.y + piece_width; 
+                    });
+
+                    checkline(bonus+1);
+
+
+                }, speed / 2, y);
+
+            }
+
+
+            var update = function() {
+
+                if (!running) return;
+
+                if (timer+speed < Date.now()) {
+                   timer = Date.now();
+                   current.dropping = 1;
+                }
+
+                current.move();
+                
+                //Si sa entre en collision avec une pièce présente
+                garbage.forEach(function(piece) {
+                    if (current.hit(piece, 0, (current.dropping * piece_width))) collision();
+                });
+
+
+                //Si sa rentre en collision avec le plancher
+                if (current.bottom() + (current.dropping * piece_width) > board.height) {
+                    collision();
+                }
+
+
+                current.y += (current.dropping * piece_width);
+                current.dropping = 0;
+
+            }
+
+            var render = function() {
+                preview.save();
+                ctx.save();
+                preview_canvas.width = preview_canvas.width;
+                board.width = board.width;
+
+                background_draw(ctx);
+
+                //Afficher tous les bricks
+                garbage.forEach(function(piece) {
+                    piece.draw(ctx);
+                });
+
+                next.draw(preview);
+                current.draw(ctx);
+
+                ctx.restore();
+                preview.restore();
+            }
+
+            var main = function() {
+
+                update();
+                render();
+
+                requestAnimationFrame(main);
+            }
+
+            var timer = Date.now();
+
+            reset();
+            main();
+
+        });
+
+
+        var models = [
+            {'color': '#FE9A2E', 'shemas': ['OZ EZ EE', 'NN NZ SZ', 'OZ EZ EE', 'NN NZ SZ']},
+            {'color': '#FA5858', 'shemas': ['OZ EZ SZ', 'NZ EZ SZ', 'EZ NZ OZ', 'NZ SZ OZ']},
+            {'color': '#BFFFA5', 'shemas': ['OZ EZ SO', 'NO NZ SZ', 'OZ NE EZ', 'NZ SZ SE']},
+            {'color': '#2E64FE', 'shemas': ['OZ EZ SE', 'NZ SZ SO', 'NO EZ OZ', 'NZ NE SZ']},
+            {'color': '#9A2EFE', 'shemas': ['OZ SZ SE', 'NX OZ SO', 'OZ SZ SE', 'NX OZ SO']},
+            {'color': '#F7FE2E', 'shemas': ['EZ SZ SO', 'NZ EZ SE', 'EZ SZ SO', 'NZ EZ SE']},
+            {'color': '#2EFEF7', 'shemas': ['OZ SZ SO', 'OZ SZ SO', 'OZ SZ SO', 'OZ SZ SO']},
+        ];
+
+    </script>
+
+</head>
+
+<body>
+
+    <div style='width:400px; float:left;'>
+        <canvas width="390" height="650" style="border:1px solid black; background: url('images/arabian-castle.jpg'); background-repeat: no-repeat; background-position: bottom; background-color: #E892FA;"></canvas>
+    </div>
+    <div style='width:400px; float:left;'>
+        <canvas width="130" height="130" style="border:1px solid black;"></canvas>
+
+    
+        <div>
+            <label>Points<label>
+            <span id='msg_points'>0<span>
+        </div>
+        <div>
+            <label>Niveau<label>
+            <span id='msg_level'>1<span>
+        </div>
+        <div>
+            <label>Niveau suivant<label>
+            <span id='msg_nextlevel'>100<span>
+        </div>
+        <div>
+            <label>Bomb<label>
+            <span id='msg_lives'>2<span>
+        </div>
+        <div id="msg_current" style='padding-top:10px;'>
+            <big>Pause</big>
+        </div>
+        <div id="msg_how" style='padding-top:10px;'>
+            <strong>INSTRUCTIONS</strong> <br>
+            [SPACEBAR] ou [P] Commencer / Pause <br>
+            [&larr;] [&rarr;] Déplacer <br>
+            [&darr;] Déscendre <br>
+            [&uarr;] Tourner (&cudarrr;) <br>
+            [R] Tourner (&larrpl;) <br>
+            [B] Bomb (Effacer les 3 lignes du bas) <br>
+        </div>
+
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,20 @@
+Thank you for downloading City at Night Backgrounds! I hope you enjoy using this file.
+
+Includes a selection of JPGs with different colors and styles, and a PSD file for easy editing. 
+
+• To change the color just turn on or off the color blending layers. 
+• To use your own colors, just create a layer and change the blending to "color" - the same as the existing color layers. 
+• Change the colors of the northern lights in the sky - edit the hue/saturation layers.
+• Use the overlay blending layer in the Merged Versions folder to create cool higher contrast verions!
+
+I have applied surface blur (in Photoshop) to the "clean" jpgs included, this gives the images a smoother and cleaner look.
+If you want to apply surface blur to jpegs you have exported - just click 
+
+Filter > Blur > surface Blur
+
+Settings - 
+
+Radius: 5 Threshold: 4
+
+
+

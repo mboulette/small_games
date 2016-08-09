@@ -1,0 +1,672 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Brick breaker Test</title>
+    <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+
+    <script>
+
+        Number.prototype.between = function(a, b) {
+          var min = Math.min.apply(Math, [a, b]),
+            max = Math.max.apply(Math, [a, b]);
+          return this >= min && this <= max;
+        };
+
+        $( document ).ready(function() {
+
+            var board = $('#board')[0];
+            var ctx = board.getContext("2d");
+            var bricks_array = [];
+            var points = 0;
+            var lives = 3;
+            var level = 0;
+            var bonus = 10;
+
+            var bricks = function (x, y) {
+                //this.color = '#333333';
+                this.fillStyle = {0:"#FFFFFF", 1:"#BFFFA5", 2:"#FFA5E0", 3:"#A5B3FF"};
+                this.strokeStyle = {0:"#FFFFFF", 1:"#98cc84", 2:"#cc84b3", 3:"#848fcc"};
+                this.width = 50;
+                this.height = 20;
+                this.x = x;
+                this.y = y;
+                this.durability = -1; 
+                
+                this.left = function () {return this.x;};
+                this.right = function () {return this.x + this.width;};
+                this.top = function () {return this.y;};
+                this.bottom = function () {return this.y + this.height;};
+
+                this.draw = function (context) {
+                    
+                    if (this.durability == 0) return;
+
+                    fillStyle = (this.durability < 0) ? '#666666' : this.fillStyle[this.durability];
+                    strokeStyle = (this.durability < 0) ? '#999999' : this.strokeStyle[this.durability];
+
+                    context.beginPath();
+                    context.fillStyle = fillStyle;
+                    context.strokeStyle = strokeStyle;
+                    context.rect(this.x, this.y, this.width-1, this.height-1);
+                    context.fill();
+                    context.stroke();
+
+                };
+
+                this.hit = function () {
+                    this.durability -= 1;
+                }
+
+            };
+
+            var balls = function () {
+                this.color = '#FFFFFF';
+                this.speed = 500;
+                this.angle = [0, 0];
+                this.x = board.width/2;
+                this.y = board.height/2;
+                this.r = 6;
+
+                this.move = function (mod) {
+                    this.x += this.angle[0] * this.speed * mod;
+                    this.y += this.angle[1] * this.speed * mod;
+                };
+
+                this.draw = function (context) {
+                    context.beginPath();
+                    context.fillStyle = this.color;
+                    context.strokeStyle = '#555555';
+                    context.arc(this.x, this.y, this.r, 0, Math.PI * 2, false);
+                    context.closePath();
+                    context.fill();
+                    context.stroke();
+                };
+
+                this.intercept = function(mod, x3, y3, x4, y4, d) {
+                    x1 = this.x;
+                    y1 = this.y;
+                    x2 = this.x + (this.angle[0] * this.speed * mod);
+                    y2 = this.y + (this.angle[1] * this.speed * mod);
+
+                    var denom = ((y4-y3) * (x2-x1)) - ((x4-x3) * (y2-y1));
+                    if (denom != 0) {
+                        var ua = (((x4-x3) * (y1-y3)) - ((y4-y3) * (x1-x3))) / denom;
+                        if ((ua >= 0) && (ua <= 1)) {
+                            var ub = (((x2-x1) * (y1-y3)) - ((y2-y1) * (x1-x3))) / denom;
+                            if ((ub >= 0) && (ub <= 1)) {
+                                var x = x1 + (ua * (x2-x1));
+                                var y = y1 + (ua * (y2-y1));
+                                return { x: x, y: y, d: d};
+                            }
+                        }
+                    }
+                    return null;
+                
+                };
+
+                this.magnitude = function (x, y) {
+                    return Math.sqrt( (x*x) + (y*y) );
+                };
+
+                this.collision = function (source, mod) {
+
+                    nx = (this.angle[0] * this.speed * mod);
+                    ny = (this.angle[1] * this.speed * mod);
+                    
+                    var left = source.left()  - this.r;
+                    var top = source.top() - this.r;
+                    var right = source.right()  + this.r;
+                    var bottom = source.bottom()  + this.r;
+
+                    var pt;
+
+                    if (nx < 0) {
+                        pt = this.intercept(mod, right, top, right, bottom, "right");
+                    } else if (nx > 0) {
+                        pt = this.intercept(mod, left, top, left, bottom, "left");
+                    }
+                    
+                    if (!pt) {
+                        if (ny < 0) {
+                            pt = this.intercept(mod, left, bottom, right, bottom, "bottom");
+                        } else if (ny > 0) {
+                            pt = this.intercept(mod, left, top, right, top, "top");
+                        }
+                    }
+
+                    if (pt) {
+                        distance = this.magnitude((pt.x - this.x), (pt.y - this.y));
+
+                        mod = mod * distance / this.magnitude(nx, ny);
+
+                        return {"source": source, "point": pt, "distance": distance, "mod" : mod};
+                    } else {
+                        return { "distance" : Infinity, "mod" : 0 };
+                    }
+
+
+                };
+
+                this.hit = function (source, pt) {
+
+                    switch(pt.d) {
+                        case 'left':
+                        case 'right':
+                            this.x = pt.x;
+                            this.angle[0] = 0-this.angle[0];
+                            break;
+                        case 'top':
+                        case 'bottom':
+                            this.y = pt.y;
+                            this.angle[1] = 0-this.angle[1];
+                            break;
+                    }
+
+                    if (points < 1000 && (points + bonus) > 1000) {
+                        lives++;
+                        $('#msg_lives').html(lives);
+                    }
+
+                    points += bonus;
+                    bonus += 1;
+                    $('#msg_points').html(points);
+
+                }
+
+            };
+
+            var palettes = function () {
+                this.fillStyle = '#7F7FFF';
+                this.strokeStyle = '#0000FF';
+                this.width = 80;
+                this.height = 10;
+                this.startSpeed = 400;
+                this.speed = 400;
+                this.direction = 0;
+                this.x = 0;
+                this.y = 0;
+
+                this.left = function () {return this.x;};
+                this.right = function () {return this.x + this.width;};
+                this.top = function () {return this.y;};
+                this.bottom = function () {return this.y + this.height;};
+
+                this.goLeft = function () {
+                    this.direction = -1;
+                };
+
+                this.goRight = function () {
+                    this.direction = 1;
+                };
+
+                this.stop = function () {
+                    this.direction = 0;
+                    this.speed = this.startSpeed + (level*10);
+                }
+
+                this.move = function (mod) {
+                    
+                    next_move = this.x + this.direction * this.speed * mod;
+
+                    if (next_move > 0 && next_move + this.width < board.width && this.direction != 0) {
+                        this.x = next_move;
+                        this.speed = this.speed * 1.05;
+                    }
+
+                    if (ball.angle[0] == 0 && ball.angle[1] == 0) {
+                        ball.x = this.x + (this.width/2);
+                    }
+
+                };
+
+                this.draw = function (context) {
+                    
+                    var grad = context.createLinearGradient(this.x, this.y, this.x, this.y+this.height);
+                    grad.addColorStop(0, this.fillStyle);
+                    grad.addColorStop(1, "white");
+
+                    context.beginPath();
+                    context.fillStyle = grad;
+                    context.strokeStyle = this.strokeStyle;
+
+                    roundRect(context, this.x, this.y, this.width, this.height, 5, true, true);
+
+                };
+
+                this.hit = function (source, pt) {
+
+                    if (pt.d == 'top') {
+                        //rebon = 3 - ((pt.x - this.x) / this.width  * 6);
+                        //source.angle[0] = source.angle[0] - (rebon / 10);
+
+                        source.angle[0] = (pt.x-(this.x+this.width/2)) / (this.width / 2);
+                        bonus = 10 + level;
+                    }
+
+                };
+
+            };
+
+            /**
+            * Draws a rounded rectangle using the current state of the canvas. 
+            * If you omit the last three params, it will draw a rectangle 
+            * outline with a 5 pixel border radius 
+            * @param {CanvasRenderingContext2D} ctx
+            * @param {Number} x The top left x coordinate
+            * @param {Number} y The top left y coordinate 
+            * @param {Number} width The width of the rectangle 
+            * @param {Number} height The height of the rectangle
+            * @param {Number} radius The corner radius. Defaults to 5;
+            * @param {Boolean} fill Whether to fill the rectangle. Defaults to false.
+            * @param {Boolean} stroke Whether to stroke the rectangle. Defaults to true.
+            */
+            var roundRect = function(ctx, x, y, width, height, radius, fill, stroke) {
+                if (typeof stroke == "undefined" ) stroke = true;               
+                if (typeof radius === "undefined") radius = 5;
+                
+                ctx.beginPath();
+                ctx.moveTo(x + radius, y);
+                ctx.lineTo(x + width - radius, y);
+                ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+                ctx.lineTo(x + width, y + height - radius);
+                ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+                ctx.lineTo(x + radius, y + height);
+                ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+                ctx.lineTo(x, y + radius);
+                ctx.quadraticCurveTo(x, y, x + radius, y);
+                ctx.closePath();
+                
+                if (fill) ctx.fill();
+                if (stroke) ctx.stroke();
+            }
+
+
+            $(document).on('keydown', function (e) {
+                if (ball.angle[0] == 0 && ball.angle[1] == 0) {
+                    if (e.which == 32) ball.angle = [0.3, -0.5];
+                }
+                
+                if (e.which == 37) palette.goLeft();
+                if (e.which == 39) palette.goRight();
+                //if (e.which == 38) current.move.y = -1-billboard.level;
+                //if (e.which == 40) current.move.y = 1+billboard.level;
+            });
+
+            $(document).on('keyup', function (e) {
+                if (e.which == 37) palette.stop();
+                if (e.which == 39) palette.stop();
+                //if (e.which == 38) current.move.y = -1-billboard.level;
+                //if (e.which == 40) current.move.y = 1+billboard.level;
+            });
+
+            var palette = new palettes;
+            var ball = new balls;
+            var brick = new bricks;
+
+            var reset = function() {
+
+                points = 0;
+                lives = 3;
+                level = 0;
+                levelUp();              
+
+            };
+
+            var levelUp = function() {
+
+                level++;
+
+                palette.x = (board.width/2) - (palette.width/2);
+                palette.y = board.height - 30;
+                palette.direction = 0;
+
+                ball.x = board.width/2;
+                ball.y = palette.top() - ball.r;
+                ball.angle = [0, 0];
+                ball.speed = 500 + (10 * level); 
+
+                bricks_array = loadMap(level);
+
+                $('#msg_level').html(level);
+
+            }
+
+            var die = function() {
+                lives--;
+
+                if (lives < 0) {
+                    $('#msg_how').html('GAME OVER : rafraichir la page pour jouer à nouveau!');
+                    return;
+                }
+
+                palette.x = (board.width/2) - (palette.width/2);
+                palette.y = board.height - 30;
+                palette.direction = 0;
+
+                ball.x = board.width/2;
+                ball.y = palette.top() - ball.r;
+                ball.angle = [0, 0];
+
+                $('#msg_lives').html(lives);
+            }
+
+            var loadMap = function(level) {
+                map = [];
+
+                for (y = 0; y < levels[level].length; y++) {
+                    for (x = 0; x < levels[level][y].length; x++) {
+                        if (levels[level][y][x] != ' ') { 
+                            tmp = new bricks(x * brick.width, y * brick.height);
+                            tmp.durability = (levels[level][y][x] == 'A') ? -1: levels[level][y][x];
+                            map.push(tmp);
+                        }
+                    }
+                }
+
+                return map;
+            }
+
+            var update = function(mod) {
+
+
+                //Vérifier qu'il reste encore des brick
+                var nb = 0;
+                bricks_array.forEach(function(brick) {
+                    if (brick.durability > 0) {
+                        nb++;
+                    }
+                });
+                if (nb == 0) {
+                    levelUp();
+                    return;
+                }
+
+
+                //Vérifier que la ball ne passe pas à travers les mus
+                if (ball.x+ball.r > board.width) {
+                    ball.angle[0] = 0-ball.angle[0];
+                    ball.x = board.width-ball.r
+                }
+                if (ball.x-ball.r < 0) {
+                    ball.angle[0] = 0-ball.angle[0];
+                    ball.x = ball.r
+                }
+                if (ball.y-ball.r < 0) {
+                    ball.angle[1] = 0-ball.angle[1];
+                    ball.y = ball.r;
+                }
+                if (ball.y+ball.r > board.height) {
+                    //ball.angle[1] = 0-ball.angle[1];
+                    //ball.y = board.height-ball.r
+
+                    //Si la ball a touché le mur du bas, c'est la mort!
+                    die();
+                    return;
+                }
+
+
+                //Collision avec la palette
+                closest = ball.collision(palette, mod);
+
+                //Collision avec les bricks
+                bricks_array.forEach(function(brick) {
+                    if (brick.durability != 0) {
+                        collision = ball.collision(brick, mod);
+                        if (collision.distance < closest.distance) {
+                            closest = collision;
+                        }
+                    }
+                });
+
+                if (closest.source) {
+                    closest.source.hit(ball, closest.point);
+                    ball.hit(closest.source, closest.point);
+
+                    if (closest.mod > 0) {
+                        update(closest.mod);
+                        return;
+                    }
+
+                }
+
+                palette.move(mod);
+                ball.move(mod);
+                
+
+            }
+
+            var render = function() {
+                ctx.save();
+                ctx.clearRect(0, 0, board.width, board.height);
+
+                //Afficher tous les bricks
+                bricks_array.forEach(function(brick) {
+                    brick.draw(ctx);
+                });
+
+                palette.draw(ctx);
+                ball.draw(ctx);
+                ctx.restore();
+            }
+
+            var main = function() {
+                var now = Date.now();
+                var delta = now - timer;
+
+                update(delta / 1000);
+                render();
+
+                timer = now;
+
+                requestAnimationFrame(main);
+            }
+
+            var timer = Date.now();
+            reset();
+            main();
+
+        });
+
+
+
+
+        var levels = {
+            1: [
+            '             ',
+            '             ',
+            '             ',
+            '             ',
+            '  111111111  ',
+            '  111111111  ',
+            '  111111111  ',
+            ],
+            2: [
+            '             ',
+            '             ',
+            '             ',
+            ' 11111111111 ',
+            ' 11111111111 ',
+            ' 11111111111 ',
+            ' 11111111111 ',
+            ' 11111111111 ',
+            ' 21111111112 ',
+            ],
+            3: [
+            '             ',
+            '             ',
+            ' 11       11 ',
+            '   11   11   ',
+            '  111111111  ',
+            ' 11111111111 ',
+            ' 11111111111 ',
+            ' 11111111111 ',
+            '1113311133111',
+            '1113311133111',
+            ' 11111111111 ',
+            ' 11111111111 ',
+            ' 11111111111 ',
+            '  212121212  ',
+            '  2 2 2 2 2  ',
+            ],
+            4: [
+            '             ',
+            '2            ',
+            '2            ',
+            '12           ',
+            '12           ',
+            '112          ',
+            '112          ',
+            '1112         ',
+            '1112         ',
+            '11112        ',
+            '11112        ',
+            '111112       ',
+            '111112       ',
+            '1111112      ',
+            '1111112      ',
+            '11111112     ',
+            '11111112     ',
+
+            ],
+            5: [
+            '             ',
+            '    11111    ',
+            '   1111111   ',
+            '  111111111  ',
+            ' 11111111111 ',
+            '1111111111111',
+            '1111111111111',
+            '1111111111111',
+            ' 11111111111 ',
+            '  111222111  ',
+            '  111AAA111  ',
+            '   111A111   ',
+            '    11111    ',
+            '    11111    ',
+            '     111     ',
+            '     111     ',
+            '      1      ',
+            ],
+            6: [
+            '             ',
+            '             ',
+            ' 11111 11111 ',
+            ' 11111 11111 ',
+            ' 11111 11111 ',
+            '             ',
+            ' 22222 22222 ',
+            ' 22222 22222 ',
+            ' 22222 22222 ',
+            '             ',
+            ' 11111 11111 ',
+            ' 11111 11111 ',
+            ' 11111 11111 ',
+            ],
+            7: [
+            '             ',
+            '             ',
+            '     AAA     ',
+            '     111     ',
+            '     111     ',
+            '     111     ',
+            '     111     ',
+            ' A111222111A ',
+            ' A111222111A ',
+            ' A111222111A ',
+            '     111     ',
+            '     111     ',
+            '     111     ',
+            '     111     ',
+            '     AAA     ',
+            ],
+            8: [
+            '1111111111111',
+            '1111111111111',
+            '11111   11111',
+            '11111   11111',
+            '111  222  111',
+            '111  222  111',
+            '111  222  111',
+            '111  222  111',
+            '11111   11111',
+            '11111   11111',
+            'AAAAA111AAAAA',
+            '1111111111111',
+            '1111111111111',
+            ],
+            9: [
+            '             ',
+            '             ',
+            '1    222    1',
+            '11   222   11',
+            '111   2   111',
+            '1111     1111',
+            '1111     1111',
+            '11111   11111',
+            'AAAAA   AAAAA',
+            '11111   11111',
+            '1111     1111',
+            '1111     1111',
+            '111   2   111',
+            '11   222   11',
+            '1    222    1',
+            ],
+            10: [
+            '12 1123211 21',
+            '123 12321 321',
+            ' 123 121 321 ',
+            ' 3123 2 3213 ',
+            '  123 2 321  ',
+            '11111   11111',
+            '11111   11111',
+            'AAAAA   AAAAA',
+            '11111   11111',
+            '11111   11111',
+            '             ',
+            '     111     ',
+            '33   222   33',
+            '33         33',
+            'AA   222   AA',
+            '     111     ',
+            ],
+        };
+
+
+        //ajouter des level
+        //Après le total de level, recomancer mais augmenter la durabilité de chaque brick
+        //Donner des vies après un certain nombre de point
+        //changer le type de la ball
+        //Ajouter des ball
+        //Ajouter des bricks spéciales
+        //Ajouter des bricks qui bougents
+        //La palette pourrait être réduite après un certain temps
+
+
+    </script>
+
+</head>
+
+<body>
+
+    <div style="position:relative; height:500px;">
+        <canvas id="board" width="649" height="479" style="border:1px solid black; position:absolute;"></canvas>
+    </div>
+
+    <div>
+        <label>Points<label>
+        <span id='msg_points'>0<span>
+    </div>
+    <div>
+        <label>Niveau<label>
+        <span id='msg_level'>1<span>
+    </div>
+    <div>
+        <label>Vie<label>
+        <span id='msg_lives'>3<span>
+    </div>
+    <div id="msg_how">Utilisez [SPACEBAR] pour commencer et [&leftarrow;] [&rightarrow;] pour déplacer le curseur</div>
+
+</body>
+</html>

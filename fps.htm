@@ -1,0 +1,53 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>FPS</title>
+    <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+
+    <script>
+        $( document ).ready(function() {
+
+            var board = $('canvas')[0];
+            var ctx = board.getContext('2d');
+            var lastCalledTime = Date.now();
+            var delta;
+
+            function update() {
+
+            }
+
+            var main = function() {
+
+                if ( (Date.now() - lastCalledTime) > 30) {
+                    delta = (Date.now() - lastCalledTime);
+                    lastCalledTime = Date.now();
+
+                    update();
+                    //render();
+
+                }
+                
+                requestAnimationFrame(main);
+            }
+
+            main();
+
+            //setInterval(function(){ $('#delta').html(delta); }, 1000);
+
+        });
+
+        
+
+    </script>
+
+</head>
+
+<body>
+
+<canvas width="1024" height="768" style="border:1px solid #000;" ></canvas>
+<div id='delta'>zzzz</div>
+
+</body>
+</html>
